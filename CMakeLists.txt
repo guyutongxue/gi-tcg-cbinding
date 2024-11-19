@@ -9,9 +9,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # https://github.com/bnoordhuis/v8-cmake/pull/87
-if (MSVC)
-  add_compile_options(/utf-8)
-endif()
+set(MSVC_COMPILE_OPTIONS /utf-8 /DEBUG:NONE)
+add_compile_options("$<$<C_COMPILER_ID:MSVC>:${MSVC_COMPILE_OPTIONS}>")
+add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:${MSVC_COMPILE_OPTIONS}>")
 
 # https://github.com/bnoordhuis/v8-cmake/pull/83
 add_definitions(-DV8_ENABLE_TURBOFAN)
