@@ -9,12 +9,15 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # https://github.com/bnoordhuis/v8-cmake/pull/87
-set(MSVC_COMPILE_OPTIONS /utf-8 /DEBUG:NONE)
+set(MSVC_COMPILE_OPTIONS /utf-8 /DEBUG:NONE
+  /wd4661 /wd4819 /wd4267 /wd4996 /wd4244
+  /wd4005 /wd4146 /wd4715 /wd4530 /wd4838
+  /wd4506 /wd4309 /wd4312 /wd4334)
 add_compile_options("$<$<C_COMPILER_ID:MSVC>:${MSVC_COMPILE_OPTIONS}>")
 add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:${MSVC_COMPILE_OPTIONS}>")
 
 # https://github.com/bnoordhuis/v8-cmake/pull/83
-add_definitions(-DV8_ENABLE_TURBOFAN)
+add_definitions(-DV8_ENABLE_TURBOFAN -DV8_ENABLE_SPARKPLUG -DV8_ENABLE_MAGLEV)
 
 ### Fetch and configure v8-cmake
 
