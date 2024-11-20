@@ -17,15 +17,15 @@ add_compile_options("$<$<C_COMPILER_ID:MSVC>:${MSVC_COMPILE_OPTIONS}>")
 add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:${MSVC_COMPILE_OPTIONS}>")
 
 # https://github.com/bnoordhuis/v8-cmake/pull/83
-add_definitions(-DV8_ENABLE_TURBOFAN -DV8_ENABLE_SPARKPLUG -DV8_ENABLE_MAGLEV)
+add_definitions(-DV8_ENABLE_TURBOFAN)
 
 ### Fetch and configure v8-cmake
 
 include(FetchContent)
 FetchContent_Declare(
   v8-cmake
-  # GIT_REPOSITORY https://github.com/bnoordhuis/v8-cmake.git
-  GIT_REPOSITORY https://git.tencent.xqm32.org/guyutongxue/v8-cmake.git
+  GIT_REPOSITORY https://github.com/bnoordhuis/v8-cmake.git
+  # GIT_REPOSITORY https://git.tencent.xqm32.org/guyutongxue/v8-cmake.git
   GIT_TAG        11.6.189.4
 )
 FetchContent_MakeAvailable(v8-cmake)
