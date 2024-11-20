@@ -46,7 +46,7 @@ class Context {
     isolate->Enter();
     auto handle_scope = v8::HandleScope(isolate);
     auto context = v8::Context::New(isolate);
-    this->context = v8::Persistent<v8::Context>(isolate, context);
+    this->context.Reset(isolate, context);
     context->Enter();
 
     v8::Local<v8::String> source_string =
