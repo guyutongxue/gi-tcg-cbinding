@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.21)
+cmake_minimum_required(VERSION 3.25)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -9,12 +9,13 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # https://github.com/bnoordhuis/v8-cmake/pull/87
-set(MSVC_COMPILE_OPTIONS /utf-8 /DEBUG:NONE
+set(MSVC_COMPILE_OPTIONS /utf-8
   /wd4661 /wd4819 /wd4267 /wd4996 /wd4244
   /wd4005 /wd4146 /wd4715 /wd4530 /wd4838
   /wd4506 /wd4309 /wd4312 /wd4334)
 add_compile_options("$<$<C_COMPILER_ID:MSVC>:${MSVC_COMPILE_OPTIONS}>")
 add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:${MSVC_COMPILE_OPTIONS}>")
+set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT Embedded)
 
 # https://github.com/bnoordhuis/v8-cmake/pull/83
 add_definitions(-DV8_ENABLE_TURBOFAN)
