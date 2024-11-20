@@ -55,6 +55,7 @@ jobs:
         echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
 
     - name: Setup cache
+      if: ${{ matrix.os == 'ubuntu-latest' }}
       uses: actions/cache@v4
       with:
         path: ${{ steps.strings.outputs.build-output-dir }}
