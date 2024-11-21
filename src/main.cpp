@@ -15,6 +15,8 @@ namespace gitcg {
 inline namespace v1 {
 
 void initialize() {
+  // v8::V8::InitializeICUDefaultLocation(argv[0]);
+  // v8::V8::InitializeExternalStartupData(argv[0]);
   static auto platform = v8::platform::NewDefaultPlatform();
   v8::V8::InitializePlatform(platform.get());
   v8::V8::Initialize();
@@ -43,39 +45,50 @@ class Context {
     create_params.array_buffer_allocator =
         v8::ArrayBuffer::Allocator::NewDefaultAllocator();
     isolate = v8::Isolate::New(create_params);
-    isolate->Enter();
-    auto handle_scope = v8::HandleScope(isolate);
-    auto context = v8::Context::New(isolate);
-    this->context.Reset(isolate, context);
-    context->Enter();
+    {
+      auto isolate_scope = v8::Isolate::Scope(isolate);
+      auto handle_scope = v8::HandleScope(isolate);
+      auto context = v8::Context::New(isolate);
+      this->context.Reset(isolate, context);
+      context->Enter();
 
-    v8::Local<v8::String> source_string =
-        v8::String::NewFromUtf8Literal(isolate, MODULE_SRC);
-    v8::ScriptCompiler::Source source(source_string);
-    auto main_module_maybe =
-        v8::ScriptCompiler::CompileModule(isolate, &source);
-    v8::Local<v8::Module> main_module;
-    if (!main_module_maybe.ToLocal(&main_module)) {
-      throw std::runtime_error("Failed to compile module");
+      v8::Local<v8::String> source_string =
+          v8::String::NewFromUtf8Literal(isolate, MODULE_SRC);
+      v8::Local<v8::String> resource_name =
+          v8::String::NewFromUtf8Literal(isolate, "main.js");
+      v8::ScriptOrigin origin(isolate, resource_name, 0, 0, false, -1,
+                              v8::Local<v8::Value>{}, false, false, true);
+      v8::ScriptCompiler::Source source(source_string, origin);
+      auto main_module_maybe =
+          v8::ScriptCompiler::CompileModule(isolate, &source);
+      v8::Local<v8::Module> main_module;
+      if (!main_module_maybe.ToLocal(&main_module)) {
+        throw std::runtime_error("Failed to compile module");
+      }
+      main_module->InstantiateModule(context, resolve_module_callback)
+          .FromJust();
+      main_module->Evaluate(context).ToLocalChecked();
+
+      auto main_namespace = main_module->GetModuleNamespace().As<v8::Object>();
+      auto game_str = v8::String::NewFromUtf8Literal(isolate, "Game");
+      auto game_ctor = main_namespace->Get(context, game_str).ToLocalChecked();
+      auto game_instance = game_ctor.As<v8::Function>()
+                               ->NewInstance(context, 0, nullptr)
+                               .ToLocalChecked();
+
+      auto test_str = v8::String::NewFromUtf8Literal(isolate, "test");
+      auto test_fn = game_instance->Get(context, test_str)
+                         .ToLocalChecked()
+                         .As<v8::Function>();
+      auto test_result = test_fn->Call(context, game_instance, 0, nullptr)
+                             .ToLocalChecked()
+                             .As<v8::String>();
+      auto test_result_str = v8::String::Utf8Value{isolate, test_result};
+      std::printf("Test result: %s\n", *test_result_str);
     }
-    main_module->InstantiateModule(context, resolve_module_callback);
-    main_module->Evaluate(context);
-
-    auto main_namespace = main_module->GetModuleNamespace().As<v8::Object>();
-    auto game_str = v8::String::NewFromUtf8Literal(isolate, "Game");
-    auto game_ctor = main_namespace->Get(context, game_str).ToLocalChecked();
-    auto game_instance = game_ctor.As<v8::Function>()->NewInstance(context, 0, nullptr).ToLocalChecked();
-    
-    auto test_str = v8::String::NewFromUtf8Literal(isolate, "test");
-    auto test_fn = game_instance->Get(context, test_str).ToLocalChecked().As<v8::Function>();
-    auto test_result = test_fn->Call(context, game_instance, 0, nullptr).ToLocalChecked().As<v8::String>();
-    auto test_result_str = v8::String::Utf8Value{isolate, test_result};
-    std::printf("Test result: %s\n", *test_result_str);
   }
   ~Context() {
-    context.Get(isolate)->Exit();
     context.Reset();
-    isolate->Exit();
     isolate->Dispose();
     delete create_params.array_buffer_allocator;
   }
@@ -92,11 +105,11 @@ public:
 }  // namespace v1
 }  // namespace gitcg
 
-int main() {
+int main(int argc, char** argv) {
   gitcg::initialize();
   {
     auto& context = gitcg::Context::get_instance();
     std::printf("Hello, World!\n");
   }
-  gitcg::cleanup();
+  // gitcg::cleanup();
 }
