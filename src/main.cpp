@@ -2,17 +2,21 @@
 #include <v8.h>
 
 constexpr const char MODULE_SRC[] = R"js(
-// import { io } from "@gi-tcg/cbinding";
+import { io } from "@gi-tcg/cbinding-io";
 
 export class Game {
+  constructor(gameId) {
+    this.gameId = gameId;
+  }
   test() {
+    io(`Hello IO, I'm ID=${this.gameId}`);
     return "Hello, world!";
   }
 }
 )js";
 
 namespace gitcg {
-inline namespace v1 {
+inline namespace v1_0 {
 
 void initialize() {
   // v8::V8::InitializeICUDefaultLocation(argv[0]);
@@ -27,20 +31,74 @@ void cleanup() {
   v8::V8::DisposePlatform();
 }
 
-class Context {
+class Environment;
+
+class Game {
+  Environment* const environment;
+  v8::UniquePersistent<v8::Object> instance;
+
+public:
+  Game(Environment* environment, v8::Local<v8::Object> instance);
+
+  void test() const;
+};
+
+class Environment {
   std::unique_ptr<v8::Platform> platform;
   v8::Isolate::CreateParams create_params;
   v8::Isolate* isolate;
   v8::Persistent<v8::Context> context;
+  v8::Persistent<v8::Function> game_ctor;
+
+  std::unordered_map<int, std::unique_ptr<Game>> games;
+  int next_game_id = 0;
+
+  static constexpr v8::Module::SyntheticModuleEvaluationSteps
+      io_module_eval_callback =
+          [](v8::Local<v8::Context> context,
+             v8::Local<v8::Module> module) -> v8::MaybeLocal<v8::Value> {
+    auto isolate = context->GetIsolate();
+    auto io_str = v8::String::NewFromUtf8Literal(isolate, "io");
+    auto io_fn = v8::FunctionTemplate::New(
+        isolate, [](const v8::FunctionCallbackInfo<v8::Value>& args) {
+          auto isolate = args.GetIsolate();
+          auto message = v8::String::Utf8Value{isolate, args[0]};
+          std::printf("IO: %s\n", *message);
+        });
+    auto io_fn_instance = io_fn->GetFunction(context).ToLocalChecked();
+    module->SetSyntheticModuleExport(isolate, io_str, io_fn_instance)
+        .FromJust();
+    auto undefined = v8::Undefined(isolate);
+    auto promise_resolver =
+        v8::Promise::Resolver::New(context).ToLocalChecked();
+    promise_resolver->Resolve(context, undefined).FromJust();
+    return promise_resolver->GetPromise();
+  };
 
   static constexpr v8::Module::ResolveModuleCallback resolve_module_callback =
       [](v8::Local<v8::Context> context, v8::Local<v8::String> specifier,
          v8::Local<v8::FixedArray> import_assertions,
-         v8::Local<v8::Module> referrer) {
-        return v8::MaybeLocal<v8::Module>{};
-      };
+         v8::Local<v8::Module> referrer) -> v8::MaybeLocal<v8::Module> {
+    auto isolate = context->GetIsolate();
+    auto expected_specifier =
+        v8::String::NewFromUtf8Literal(isolate, "@gi-tcg/cbinding-io");
+    if (!specifier->StringEquals(expected_specifier)) {
+      auto error_message =
+          v8::String::NewFromUtf8Literal(isolate, "Module not found");
+      isolate->ThrowError(error_message);
+      return v8::MaybeLocal<v8::Module>{};
+    }
+    std::vector<v8::Local<v8::String>> export_names = {
+        v8::String::NewFromUtf8Literal(isolate, "io")};
+    auto io_module = v8::Module::CreateSyntheticModule(
+        isolate, specifier, export_names, io_module_eval_callback);
+    return io_module;
+  };
 
-  Context() {
+  static thread_local std::unique_ptr<Environment> instance;
+
+public:
+  Environment() {
     platform = v8::platform::NewDefaultPlatform();
     create_params.array_buffer_allocator =
         v8::ArrayBuffer::Allocator::NewDefaultAllocator();
@@ -72,44 +130,103 @@ class Context {
       auto main_namespace = main_module->GetModuleNamespace().As<v8::Object>();
       auto game_str = v8::String::NewFromUtf8Literal(isolate, "Game");
       auto game_ctor = main_namespace->Get(context, game_str).ToLocalChecked();
-      auto game_instance = game_ctor.As<v8::Function>()
-                               ->NewInstance(context, 0, nullptr)
-                               .ToLocalChecked();
-
-      auto test_str = v8::String::NewFromUtf8Literal(isolate, "test");
-      auto test_fn = game_instance->Get(context, test_str)
-                         .ToLocalChecked()
-                         .As<v8::Function>();
-      auto test_result = test_fn->Call(context, game_instance, 0, nullptr)
-                             .ToLocalChecked()
-                             .As<v8::String>();
-      auto test_result_str = v8::String::Utf8Value{isolate, test_result};
-      std::printf("Test result: %s\n", *test_result_str);
+      this->game_ctor.Reset(isolate, game_ctor.As<v8::Function>());
     }
   }
-  ~Context() {
+
+  Game& create_game() {
+    auto handle_scope = v8::HandleScope(isolate);
+    auto context = get_context();
+    auto game_ctor = this->game_ctor.Get(isolate);
+    auto game_id = next_game_id++;
+    auto game_id_value = v8::Number::New(isolate, game_id);
+    std::vector<v8::Local<v8::Value>> game_ctor_args = {game_id_value};
+    auto game_instance =
+        game_ctor
+            ->NewInstance(context, game_ctor_args.size(), game_ctor_args.data())
+            .ToLocalChecked();
+    auto [it, _] =
+        games.emplace(game_id, std::make_unique<Game>(this, game_instance));
+    return *(it->second);
+  }
+
+  v8::Isolate* get_isolate() {
+    return isolate;
+  }
+  /**
+   * Get v8::Local<v8::Context> of current execution context.
+   * MUST be called under a handle_scope.
+   */
+  v8::Local<v8::Context> get_context() const {
+    return context.Get(isolate);
+  }
+
+  ~Environment() {
+    games.clear();
     context.Reset();
     isolate->Dispose();
     delete create_params.array_buffer_allocator;
   }
-  Context(const Context&) = delete;
-  Context& operator=(const Context&) = delete;
+  Environment(const Environment&) = delete;
+  Environment& operator=(const Environment&) = delete;
+
+  static Environment& get_instance() {
+    if (!instance) {
+      throw std::runtime_error(
+          "Context instance does not exist on this thread");
+    }
+    return *instance;
+  }
 
 public:
-  static Context& get_instance() {
-    thread_local Context context;
-    return context;
+  static Environment& create() {
+    if (instance) {
+      throw std::runtime_error(
+          "Context instance already exists on this thread");
+    }
+    instance = std::make_unique<Environment>();
+    return *instance;
+  }
+  static void dispose() {
+    auto& _ = get_instance();
+    instance.reset();
   }
 };
 
-}  // namespace v1
+Game::Game(Environment* environment, v8::Local<v8::Object> instance)
+    : environment(environment) {
+  this->instance.Reset(environment->get_isolate(), instance);
+}
+
+void Game::test() const {
+  auto isolate = environment->get_isolate();
+  auto handle_scope = v8::HandleScope(isolate);
+  auto context = environment->get_context();
+  auto instance = this->instance.Get(isolate);
+  auto test_str = v8::String::NewFromUtf8Literal(isolate, "test");
+  auto test_fn =
+      instance->Get(context, test_str).ToLocalChecked().As<v8::Function>();
+  auto test_result = test_fn->Call(context, instance, 0, nullptr)
+                         .ToLocalChecked()
+                         .As<v8::String>();
+  auto test_result_str = v8::String::Utf8Value{isolate, test_result};
+  std::printf("Test result: %s\n", *test_result_str);
+}
+
+thread_local std::unique_ptr<Environment> Environment::instance;
+
+}  // namespace v1_0
 }  // namespace gitcg
 
 int main(int argc, char** argv) {
   gitcg::initialize();
   {
-    auto& context = gitcg::Context::get_instance();
-    std::printf("Hello, World!\n");
+    auto& env = gitcg::Environment::create();
+    std::printf("11111\n");
+    auto& game = env.create_game();
+    game.test();
+    std::printf("22222\n");
+    gitcg::Environment::dispose();
   }
-  // gitcg::cleanup();
+  gitcg::cleanup();
 }
