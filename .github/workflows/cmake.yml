@@ -64,7 +64,7 @@ jobs:
           echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
 
       - name: Setup cache
-        # if: ${{ matrix.os == 'ubuntu-latest' }}
+        id: cache
         uses: actions/cache@v4
         with:
           path: ${{ steps.strings.outputs.build-output-dir }}
@@ -82,6 +82,7 @@ jobs:
           -S ${{ github.workspace }}
 
       - name: Patch
+        if: steps.cache.outputs.cache-hit != 'true'
         # https://github.com/microsoft/vcpkg/issues/42251
         # A MSVC issue causes v8 failed to compile
         shell: bash
