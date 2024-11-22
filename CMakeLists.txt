@@ -35,7 +35,10 @@ FetchContent_MakeAvailable(v8-cmake)
 
 project(V8Test)
 
-add_executable(V8Test src/main.cpp)
+add_executable(V8Test
+  src/environment.cpp
+  src/game.cpp
+  src/main.cpp)
 
 target_link_libraries(V8Test
   PRIVATE
