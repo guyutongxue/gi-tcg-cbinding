@@ -86,7 +86,7 @@ jobs:
         # A MSVC issue causes v8 failed to compile
         shell: bash
         run: |
-          cd ${{ github.workspace }}
+          cd '${{ github.workspace }}'
           patch -p0 < fix_msvc_19.42.patch
 
       - name: Build
