@@ -38,7 +38,6 @@ jobs:
           - os: macos-latest
             c_compiler: clang
             cpp_compiler: clang++
-            package_manager: brew
         # exclude:
         #   - os: windows-latest
         #     c_compiler: gcc
@@ -50,9 +49,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Ninja
-        run: |
-          ${{ matrix.package_manager }} install ninja
+      - uses: lukka/get-cmake@latest
 
       - name: Set reusable strings
         # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
@@ -60,10 +57,6 @@ jobs:
         shell: bash
         run: |
           echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
-
-      - name: Setup Windows dev command
-        if: ${{ runner.os == 'Windows' }}
-        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Setup cache
         # if: ${{ matrix.os == 'ubuntu-latest' }}
