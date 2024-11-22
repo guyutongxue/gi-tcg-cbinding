@@ -1,6 +1,8 @@
 #include <libplatform/libplatform.h>
 #include <v8.h>
 
+#include <cstring>
+
 constexpr const char MODULE_SRC[] = R"js(
 import { io } from "@gi-tcg/cbinding-io";
 
@@ -12,14 +14,22 @@ export class Game {
   }
   test() {
     const data = [42, 56, 127];
-    io(this.gameId, RPC, 0, new Uint8Array(data));
-    return "Hello, world!";
+    const response = io(this.gameId, RPC, 0, new Uint8Array(data));
+    return String.fromCodePoint(...response);
   }
 }
 )js";
 
 namespace gitcg {
 inline namespace v1_0 {
+
+using RpcHandler = void (*)(void* player_data, const char* request_data,
+                            std::size_t request_len, char* response_data,
+                            std::size_t* response_len) noexcept;
+
+using NotificationHandler = void (*)(void* player_data,
+                                     const char* notification_data,
+                                     std::size_t notification_len) noexcept;
 
 void initialize() {
   // v8::V8::InitializeICUDefaultLocation(argv[0]);
@@ -41,8 +51,31 @@ class Game {
   const int game_id;
   v8::UniquePersistent<v8::Object> instance;
 
+  void* player_data[2]{};
+  RpcHandler rpc_handler[2]{};
+  NotificationHandler notification_handler[2]{};
+
 public:
   Game(Environment* environment, int game_id, v8::Local<v8::Object> instance);
+
+  void* get_player_data(int who) const {
+    return player_data[who];
+  }
+  void set_player_data(int who, void* data) {
+    player_data[who] = data;
+  }
+  RpcHandler get_rpc_handler(int who) const {
+    return rpc_handler[who];
+  }
+  void set_rpc_handler(int who, RpcHandler handler) {
+    rpc_handler[who] = handler;
+  }
+  NotificationHandler get_notification_handler(int who) const {
+    return notification_handler[who];
+  }
+  void set_notification_handler(int who, NotificationHandler handler) {
+    notification_handler[who] = handler;
+  }
 
   void test() const;
 };
@@ -58,21 +91,62 @@ class Environment {
   int next_game_id = 0;
 
   static constexpr int ENVIRONMENT_THIS_SLOT = 1;
+  enum class IoType { RPC = 1, NOTIFICATION = 2 };
+  static constexpr std::size_t DEFAULT_RESPONSE_SIZE = 128;
 
   static constexpr v8::FunctionCallback io_fn_callback =
       [](const v8::FunctionCallbackInfo<v8::Value>& args) {
         auto isolate = args.GetIsolate();
         auto context = isolate->GetCurrentContext();
         auto data = context->GetEmbedderData(ENVIRONMENT_THIS_SLOT);
-        auto environment = static_cast<Environment*>(data.As<v8::External>()->Value());
+        auto environment =
+            static_cast<Environment*>(data.As<v8::External>()->Value());
         auto gameId = args[0].As<v8::Number>()->Value();
-        auto ioType = args[1].As<v8::Number>()->Value();
+        int ioType = args[1].As<v8::Number>()->Value();
         auto who = args[2].As<v8::Number>()->Value();
         auto request = args[3].As<v8::Uint8Array>()->Buffer();
         auto buf_len = request->ByteLength();
-        auto buf_data = static_cast<unsigned char*>(request->Data());
-        for (size_t i = 0; i < buf_len; ++i) {
-          std::printf("%d ", buf_data[i]);
+        auto buf_data = static_cast<char*>(request->Data());
+        auto game = environment->games.at(gameId).get();
+        auto player_data = game->get_player_data(who);
+        if (ioType == static_cast<int>(IoType::RPC)) {
+          auto response =
+              static_cast<char*>(std::malloc(DEFAULT_RESPONSE_SIZE));
+          auto response_len = DEFAULT_RESPONSE_SIZE;
+          auto handler = game->get_rpc_handler(who);
+          if (!handler) {
+            auto error_message = v8::String::NewFromUtf8Literal(
+                isolate, "RPC handler not set");
+            isolate->ThrowError(error_message);
+            return;
+          }
+          while (true) {
+            auto required_response_len = response_len;
+            handler(player_data, buf_data, buf_len, response,
+                    &required_response_len);
+            if (required_response_len > response_len) {
+              response = static_cast<char*>(
+                  std::realloc(response, required_response_len));
+              response_len = required_response_len;
+            } else {
+              response_len = required_response_len;
+              break;
+            }
+          }
+          auto response_buf = v8::ArrayBuffer::New(isolate, response_len);
+          std::memcpy(response_buf->Data(), response, response_len);
+          auto response_array =
+              v8::Uint8Array::New(response_buf, 0, response_len);
+          args.GetReturnValue().Set(response_array);
+        } else if (ioType == static_cast<int>(IoType::NOTIFICATION)) {
+          auto handler = game->get_notification_handler(who);
+          if (!handler) {
+            auto error_message = v8::String::NewFromUtf8Literal(
+                isolate, "Notification handler not set");
+            isolate->ThrowError(error_message);
+            return;
+          }
+          handler(player_data, buf_data, buf_len);
         }
       };
 
@@ -245,6 +319,16 @@ int main(int argc, char** argv) {
     auto& env = gitcg::Environment::create();
     std::printf("11111\n");
     auto game = env.create_game();
+    game->set_rpc_handler(0, [](void* player_data, const char* request_data,
+                                std::size_t request_len, char* response_data,
+                                std::size_t* response_len) noexcept {
+      for (std::size_t i = 0; i < request_len; ++i) {
+        std::printf("%d ", static_cast<int>(request_data[i]));
+      }
+      std::printf("RPC handler called\n");
+      std::memcpy(response_data, "Hello, I'm response!", 20);
+      *response_len = 20;
+    });
     game->test();
     std::printf("22222\n");
     gitcg::Environment::dispose();
