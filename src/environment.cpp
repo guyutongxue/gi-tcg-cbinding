@@ -37,9 +37,9 @@ void cleanup() {
   v8::V8::DisposePlatform();
 }
 
-thread_local std::unique_ptr<Environment> Environment::instance;
-
 namespace {
+
+thread_local std::unique_ptr<Environment> instance;
 
 static constexpr int ENVIRONMENT_THIS_SLOT = 1;
 enum class IoType { RPC = 1, NOTIFICATION = 2 };
@@ -172,6 +172,34 @@ Environment::Environment() {
   this->game_ctor.Reset(isolate, game_ctor.As<v8::Function>());
 }
 
+Environment::~Environment() {
+  games.clear();
+  context.Reset();
+  isolate->Dispose();
+  delete create_params.array_buffer_allocator;
+}
+
+
+Environment& Environment::create() {
+  if (instance) {
+    throw std::runtime_error("Context instance already exists on this thread");
+  }
+  instance = std::make_unique<Environment>();
+  return *instance;
+}
+
+Environment& Environment::get_instance() {
+  if (!instance) {
+    throw std::runtime_error("Context instance does not exist on this thread");
+  }
+  return *instance;
+}
+
+void Environment::dispose() {
+  auto& _ = get_instance();
+  instance.reset();
+}
+
 Game* Environment::create_game() {
   auto handle_scope = v8::HandleScope(isolate);
   auto context = get_context();
@@ -188,11 +216,12 @@ Game* Environment::create_game() {
   return it->second.get();
 }
 
-Environment::~Environment() {
-  games.clear();
-  context.Reset();
-  isolate->Dispose();
-  delete create_params.array_buffer_allocator;
+Game* Environment::get_game(int gameId) noexcept {
+  auto it = games.find(gameId);
+  if (it == games.end()) {
+    return nullptr;
+  }
+  return it->second.get();
 }
 
 }  // namespace v1_0

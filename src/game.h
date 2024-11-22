@@ -29,22 +29,27 @@ class Game {
 public:
   Game(Environment* environment, int game_id, v8::Local<v8::Object> instance);
 
-  void* get_player_data(int who) const {
+  Game(const Game&) = delete;
+  Game& operator=(const Game&) = delete;
+  Game(Game&&) = default;
+  Game& operator=(Game&&) = default;
+
+  void* get_player_data(int who) const noexcept {
     return player_data[who];
   }
-  void set_player_data(int who, void* data) {
+  void set_player_data(int who, void* data) noexcept {
     player_data[who] = data;
   }
-  RpcHandler get_rpc_handler(int who) const {
+  RpcHandler get_rpc_handler(int who) const noexcept {
     return rpc_handler[who];
   }
-  void set_rpc_handler(int who, RpcHandler handler) {
+  void set_rpc_handler(int who, RpcHandler handler) noexcept {
     rpc_handler[who] = handler;
   }
   NotificationHandler get_notification_handler(int who) const {
     return notification_handler[who];
   }
-  void set_notification_handler(int who, NotificationHandler handler) {
+  void set_notification_handler(int who, NotificationHandler handler) noexcept {
     notification_handler[who] = handler;
   }
 
