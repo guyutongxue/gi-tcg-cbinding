@@ -1,0 +1,13 @@
+--- build/_deps/v8-cmake-src/v8/src/snapshot/embedded/embedded-data.cc
++++ build/_deps/v8-cmake-src/v8/src/snapshot/embedded/embedded-data-new.cc
+@@ -235,8 +235,8 @@ EmbeddedData EmbeddedData::NewFromIsolate(Isolate* isolate) {
+   Builtins* builtins = isolate->builtins();
+ 
+   // Store instruction stream lengths and offsets.
+-  std::vector<struct LayoutDescription> layout_descriptions(kTableSize);
+-  std::vector<struct BuiltinLookupEntry> offset_descriptions(kTableSize);
++  std::vector<struct ::v8::internal::EmbeddedData::LayoutDescription> layout_descriptions(kTableSize);
++  std::vector<struct ::v8::internal::EmbeddedData::BuiltinLookupEntry> offset_descriptions(kTableSize);
+ 
+   bool saw_unsafe_builtin = false;
+   uint32_t raw_code_size = 0;

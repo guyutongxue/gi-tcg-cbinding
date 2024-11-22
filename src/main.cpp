@@ -4,12 +4,15 @@
 constexpr const char MODULE_SRC[] = R"js(
 import { io } from "@gi-tcg/cbinding-io";
 
+const RPC = 1;
+
 export class Game {
   constructor(gameId) {
     this.gameId = gameId;
   }
   test() {
-    io(`Hello IO, I'm ID=${this.gameId}`);
+    const data = [42, 56, 127];
+    io(this.gameId, RPC, 0, new Uint8Array(data));
     return "Hello, world!";
   }
 }
@@ -35,10 +38,11 @@ class Environment;
 
 class Game {
   Environment* const environment;
+  const int game_id;
   v8::UniquePersistent<v8::Object> instance;
 
 public:
-  Game(Environment* environment, v8::Local<v8::Object> instance);
+  Game(Environment* environment, int game_id, v8::Local<v8::Object> instance);
 
   void test() const;
 };
@@ -53,18 +57,32 @@ class Environment {
   std::unordered_map<int, std::unique_ptr<Game>> games;
   int next_game_id = 0;
 
+  static constexpr int ENVIRONMENT_THIS_SLOT = 1;
+
+  static constexpr v8::FunctionCallback io_fn_callback =
+      [](const v8::FunctionCallbackInfo<v8::Value>& args) {
+        auto isolate = args.GetIsolate();
+        auto context = isolate->GetCurrentContext();
+        auto data = context->GetEmbedderData(ENVIRONMENT_THIS_SLOT);
+        auto environment = static_cast<Environment*>(data.As<v8::External>()->Value());
+        auto gameId = args[0].As<v8::Number>()->Value();
+        auto ioType = args[1].As<v8::Number>()->Value();
+        auto who = args[2].As<v8::Number>()->Value();
+        auto request = args[3].As<v8::Uint8Array>()->Buffer();
+        auto buf_len = request->ByteLength();
+        auto buf_data = static_cast<unsigned char*>(request->Data());
+        for (size_t i = 0; i < buf_len; ++i) {
+          std::printf("%d ", buf_data[i]);
+        }
+      };
+
   static constexpr v8::Module::SyntheticModuleEvaluationSteps
       io_module_eval_callback =
           [](v8::Local<v8::Context> context,
              v8::Local<v8::Module> module) -> v8::MaybeLocal<v8::Value> {
     auto isolate = context->GetIsolate();
     auto io_str = v8::String::NewFromUtf8Literal(isolate, "io");
-    auto io_fn = v8::FunctionTemplate::New(
-        isolate, [](const v8::FunctionCallbackInfo<v8::Value>& args) {
-          auto isolate = args.GetIsolate();
-          auto message = v8::String::Utf8Value{isolate, args[0]};
-          std::printf("IO: %s\n", *message);
-        });
+    auto io_fn = v8::FunctionTemplate::New(isolate, io_fn_callback);
     auto io_fn_instance = io_fn->GetFunction(context).ToLocalChecked();
     module->SetSyntheticModuleExport(isolate, io_str, io_fn_instance)
         .FromJust();
@@ -109,6 +127,8 @@ public:
       auto context = v8::Context::New(isolate);
       this->context.Reset(isolate, context);
       context->Enter();
+      context->SetEmbedderData(ENVIRONMENT_THIS_SLOT,
+                               v8::External::New(isolate, this));
 
       v8::Local<v8::String> source_string =
           v8::String::NewFromUtf8Literal(isolate, MODULE_SRC);
@@ -134,7 +154,7 @@ public:
     }
   }
 
-  Game& create_game() {
+  Game* create_game() {
     auto handle_scope = v8::HandleScope(isolate);
     auto context = get_context();
     auto game_ctor = this->game_ctor.Get(isolate);
@@ -145,9 +165,9 @@ public:
         game_ctor
             ->NewInstance(context, game_ctor_args.size(), game_ctor_args.data())
             .ToLocalChecked();
-    auto [it, _] =
-        games.emplace(game_id, std::make_unique<Game>(this, game_instance));
-    return *(it->second);
+    auto [it, _] = games.emplace(
+        game_id, std::make_unique<Game>(this, game_id, game_instance));
+    return it->second.get();
   }
 
   v8::Isolate* get_isolate() {
@@ -193,8 +213,9 @@ public:
   }
 };
 
-Game::Game(Environment* environment, v8::Local<v8::Object> instance)
-    : environment(environment) {
+Game::Game(Environment* environment, int game_id,
+           v8::Local<v8::Object> instance)
+    : environment{environment}, game_id{game_id} {
   this->instance.Reset(environment->get_isolate(), instance);
 }
 
@@ -223,8 +244,8 @@ int main(int argc, char** argv) {
   {
     auto& env = gitcg::Environment::create();
     std::printf("11111\n");
-    auto& game = env.create_game();
-    game.test();
+    auto game = env.create_game();
+    game->test();
     std::printf("22222\n");
     gitcg::Environment::dispose();
   }
