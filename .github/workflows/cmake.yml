@@ -34,7 +34,7 @@ jobs:
           - os: ubuntu-latest
             c_compiler: gcc
             cpp_compiler: g++
-            package_manager: brew
+            package_manager: sudo apt
           - os: macos-latest
             c_compiler: clang
             cpp_compiler: clang++
@@ -60,6 +60,10 @@ jobs:
         shell: bash
         run: |
           echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Windows dev command
+        if: ${{ runner.os == 'Windows' }}
+        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Setup cache
         # if: ${{ matrix.os == 'ubuntu-latest' }}
